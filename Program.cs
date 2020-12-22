@@ -11,10 +11,10 @@ namespace YtoMp3
 {
     public class Options
     {
-        [Value(0, Required = true, HelpText = "The id or url of the video/playlist. ")]
-        public string IdOrUrl { get; set; }
+        [Value(0, Required = true, HelpText = "The id, url or file path of the video/playlist. ")]
+        public string Path { get; set; }
         
-        [Option('m', Default = false, HelpText = "Merge videos of a playlist into a single mp3.")]
+        [Option('m', Default = false, HelpText = "Merge videos of a playlist or a folder into a single mp3.")]
         public bool Merge { get; set; }
     }
     
@@ -30,18 +30,7 @@ namespace YtoMp3
                 return;
             }
 
-            await results.WithParsedAsync(async options =>
-            {
-                var client = new YtoMp3();
-                if (VideoId.TryParse(options.IdOrUrl) != null)
-                {
-                    await client.ConvertVideo(options.IdOrUrl);
-                }
-                else if(PlaylistId.TryParse(options.IdOrUrl) != null)
-                {
-                    await client.ConvertPlaylist(options.IdOrUrl, options.Merge);
-                }
-            });
+            await results.WithParsedAsync(YtoMp3.Execute);
         }
     }
 }
