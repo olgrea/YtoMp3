@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using CommandLine;
 using Xabe.FFmpeg;
 using YoutubeExplode;
 using YoutubeExplode.Playlists;
@@ -28,28 +29,34 @@ namespace YtoMp3
 
         public async Task<string> ConvertVideo(string idOrUrl)
         {
-            var videoPath = await Download(idOrUrl);
+            VideoId id = new VideoId(idOrUrl);
+            var videoPath = await DownloadVideo(id);
             var mp3Path = await ConvertToMp3(videoPath);
             if (File.Exists(videoPath)) 
                 File.Delete(videoPath);
             return mp3Path;
         }
         
-        async Task<string> Download(string idOrUrl)
+        public async Task<string> ConvertPlaylist(string idOrUrl, bool merge)
         {
-            VideoId id = new VideoId(idOrUrl);
-
-            Video videoInfo;
-            try
+            PlaylistId id = new PlaylistId(idOrUrl);
+            Playlist info = await _youtube.Playlists.GetAsync(id);
+            var videoPaths = await DownloadPlaylist(id, info);
+            var outputDir = await ConvertToMp3(videoPaths, $"{RemoveInvalidChars(info.Title)}", merge);
+            foreach (var path in videoPaths)
             {
-                videoInfo = await _youtube.Videos.GetAsync(id);
+                if (File.Exists(path)) 
+                    File.Delete(path);
             }
-            catch (Exception e) 
-            {
-                Console.WriteLine(e);
-                throw;
-            }
-            var manifest = await _youtube.Videos.Streams.GetManifestAsync(id);
+            
+            return outputDir;
+        }
+        
+        async Task<string> DownloadVideo(VideoId id, StreamManifest manifest = null)
+        {
+            Video videoInfo = await _youtube.Videos.GetAsync(id);
+            manifest ??= await _youtube.Videos.Streams.GetManifestAsync(id);
+            
             if (manifest == null)
                 throw new ArgumentException("no manifest found");
 
@@ -62,7 +69,7 @@ namespace YtoMp3
             
             var videoPath = Path.Combine(tempDir, $"{RemoveInvalidChars(videoInfo.Title)}.{stream.Container.Name}");
             
-            Console.WriteLine($"Downloading video {id}...");
+            Console.WriteLine($"Downloading video {videoInfo.Title}...");
             using (var progress = new  InlineProgress())
             {
                 await _youtube.Videos.Streams.DownloadAsync(stream, videoPath, progress);
@@ -71,60 +78,106 @@ namespace YtoMp3
             return videoPath;
         }
 
-        private async Task<string> ConvertToMp3(string path)
+        async Task<IEnumerable<string>> DownloadPlaylist(PlaylistId id, Playlist info = null)
         {
-            return await ConvertToMp3(new[] {path});
+            info ??= await _youtube.Playlists.GetAsync(id);
+            var videos = await _youtube.Playlists.GetVideosAsync(id);
+            Console.WriteLine($"{videos.Count} videos found in playlist {info.Title}");
+            var videoPaths = new List<string>();
+            foreach (var video in videos)
+            {
+                videoPaths.Add(await DownloadVideo(video.Url));
+            }
+
+            return videoPaths;
         }
-        
-        private async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert)
+
+        private async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert, string outputDirName = "output", bool merge = false)
         {
-            var pathToConvert = pathsToConvert.First();
+            if (!merge)
+            {
+                foreach (var path in pathsToConvert) 
+                    await ConvertToMp3(path, outputDirName);
+                return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);    
+            }
             
+            return await MergeToMp3(pathsToConvert, outputDirName);
+        }
+
+        private async Task<string> MergeToMp3(IEnumerable<string> pathsToMerge, string outputDirName = "output")
+        {
             // TODO : set as embedded
             FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
 
-            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), "output");
+            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
             Directory.CreateDirectory(outputDir);
+
+            var filename = $"{Path.GetFileNameWithoutExtension(outputDirName)}.mp3";
+            var filePath = Path.Combine(outputDir, filename);
             
+            IConversion conversion = FFmpeg.Conversions.New();
+
+            var sb = new StringBuilder();
+            var count = pathsToMerge.Count();
+
+            // Input parameters
+            foreach (var path in pathsToMerge) 
+                sb.Append($"-i \"{path}\" ");
+
+            // filter
+            sb.Append($"-filter_complex \"");
+            for (int i = 0; i < count; i++) 
+                sb.Append($"[{i}:a:0]");
+            sb.Append($"concat=n={count}:v=0:a=1[outa]\" ");
+
+            // map
+            sb.Append($"-map \"[outa]\" \"{filePath}\" ");
+
+            conversion.AddParameter(sb.ToString())
+                .SetOverwriteOutput(true)
+                .SetOutput(filePath);
+
+            var p = conversion.Build();
+            
+            return await DoConversion(conversion);
+        }
+        
+        private async Task<string> ConvertToMp3(string pathToConvert, string outputDirName = "output")
+        {
+            // TODO : set as embedded
+            FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
+
+            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
+            Directory.CreateDirectory(outputDir);
+
+            IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
+            var audioStream = mediaInfo.AudioStreams.FirstOrDefault()?.SetCodec(AudioCodec.mp3);
+
             var filename = $"{Path.GetFileNameWithoutExtension(pathToConvert)}.mp3";
             var filePath = Path.Combine(outputDir, filename);
-            if (File.Exists(filePath))
-                File.Delete(filePath);
-            
-            var mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
-            var audioStream = mediaInfo.AudioStreams.FirstOrDefault();
 
-            var conversion = FFmpeg.Conversions.New();
-            conversion.AddStream(audioStream);
-            conversion.SetAudioBitrate(audioStream.Bitrate);
-            conversion.SetOutput(filename);
+            IConversion conversion = FFmpeg.Conversions.New();
+            conversion.AddStream(audioStream)
+                .SetOverwriteOutput(true)
+                .SetOutput(filePath)
+                .SetAudioBitrate(audioStream.Bitrate);
 
-            Console.WriteLine($"Converting {pathToConvert} to mp3...");
+            return await DoConversion(conversion);
+        }
+
+        private static async Task<string> DoConversion(IConversion conversion)
+        {
+            Console.WriteLine($"Converting to {conversion.OutputFilePath}...");
             using (var convProgress = new InlineProgress())
             {
-                conversion.OnProgress += (sender, args) => { convProgress.Report((double)args.Percent/100d); };
+                conversion.OnProgress += (sender, args) => { convProgress.Report((double) args.Percent / 100d); };
                 await conversion.Start();
             }
 
-            var outputFileInfo = new FileInfo(pathToConvert);
+            var outputFileInfo = new FileInfo(conversion.OutputFilePath);
             if (!outputFileInfo.Exists || outputFileInfo.Length == 0)
-                throw new ArgumentException($"problem during conversion of video {pathToConvert}.");
-
-            return filename;
+                Console.Error.WriteLine($"problem during conversion of {outputFileInfo.Name}.");
+            return conversion.OutputFilePath;
         }
-
-        public async Task DownloadPlaylist(string idOrUrl, bool merge)
-        {
-            PlaylistId id = new PlaylistId(idOrUrl);
-            Playlist info = await _youtube.Playlists.GetAsync(id);
-
-            var videos = await _youtube.Playlists.GetVideosAsync(id);
-            Console.WriteLine($"{videos.Count} videos found in playlist {info.Title}");
-            foreach (var video in videos)
-            {
-                await Download(video.Url);
-            }
-        }
-        
     }
 }

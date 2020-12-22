@@ -39,7 +39,7 @@ namespace YtoMp3
                 }
                 else if(PlaylistId.TryParse(options.IdOrUrl) != null)
                 {
-                    await client.DownloadPlaylist(options.IdOrUrl, options.Merge);
+                    await client.ConvertPlaylist(options.IdOrUrl, options.Merge);
                 }
             });
         }
