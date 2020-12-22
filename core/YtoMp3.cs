@@ -21,16 +21,34 @@ namespace YtoMp3
             _youtube = new YoutubeClient();
         }
 
-        public string ReplaceInvalidChars(string filename)
+        string RemoveInvalidChars(string filename)
         {
             return string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
         }
 
-        public async Task Download(string idOrUrl)
+        public async Task<string> ConvertVideo(string idOrUrl)
+        {
+            var videoPath = await Download(idOrUrl);
+            var mp3Path = await ConvertToMp3(videoPath);
+            if (File.Exists(videoPath)) 
+                File.Delete(videoPath);
+            return mp3Path;
+        }
+        
+        async Task<string> Download(string idOrUrl)
         {
             VideoId id = new VideoId(idOrUrl);
 
-            var videoInfo = await _youtube.Videos.GetAsync(id);
+            Video videoInfo;
+            try
+            {
+                videoInfo = await _youtube.Videos.GetAsync(id);
+            }
+            catch (Exception e) 
+            {
+                Console.WriteLine(e);
+                throw;
+            }
             var manifest = await _youtube.Videos.Streams.GetManifestAsync(id);
             if (manifest == null)
                 throw new ArgumentException("no manifest found");
@@ -39,28 +57,41 @@ namespace YtoMp3
             if (stream == null)
                 throw new ArgumentException("no audio stream found");
 
-            var tmpFile = $"{id.Value}.{stream.Container.Name}";
-            if (File.Exists(tmpFile))
-                File.Delete(tmpFile);
-
+            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            Directory.CreateDirectory(tempDir);
+            
+            var videoPath = Path.Combine(tempDir, $"{RemoveInvalidChars(videoInfo.Title)}.{stream.Container.Name}");
+            
             Console.WriteLine($"Downloading video {id}...");
             using (var progress = new  InlineProgress())
             {
-                await _youtube.Videos.Streams.DownloadAsync(stream, tmpFile, progress);
+                await _youtube.Videos.Streams.DownloadAsync(stream, videoPath, progress);
             }
 
-            await ConvertToMp3(tmpFile, ReplaceInvalidChars($"{videoInfo.Title}.mp3"));
+            return videoPath;
         }
 
-        private async Task ConvertToMp3(string path, string filename)
+        private async Task<string> ConvertToMp3(string path)
         {
+            return await ConvertToMp3(new[] {path});
+        }
+        
+        private async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert)
+        {
+            var pathToConvert = pathsToConvert.First();
+            
             // TODO : set as embedded
             FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
 
-            var mediaInfo = await FFmpeg.GetMediaInfo(path);
-            if (File.Exists(filename))
-                File.Delete(filename);
+            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), "output");
+            Directory.CreateDirectory(outputDir);
             
+            var filename = $"{Path.GetFileNameWithoutExtension(pathToConvert)}.mp3";
+            var filePath = Path.Combine(outputDir, filename);
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+            
+            var mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
             var audioStream = mediaInfo.AudioStreams.FirstOrDefault();
 
             var conversion = FFmpeg.Conversions.New();
@@ -68,21 +99,21 @@ namespace YtoMp3
             conversion.SetAudioBitrate(audioStream.Bitrate);
             conversion.SetOutput(filename);
 
-            Console.WriteLine($"Converting {path} to mp3...");
-            var convProgress = new InlineProgress();
-            conversion.OnProgress += (sender, args) => { convProgress.Report(args.Percent); };
-            await conversion.Start();
-            convProgress.Dispose();
+            Console.WriteLine($"Converting {pathToConvert} to mp3...");
+            using (var convProgress = new InlineProgress())
+            {
+                conversion.OnProgress += (sender, args) => { convProgress.Report((double)args.Percent/100d); };
+                await conversion.Start();
+            }
 
-            var outputFileInfo = new FileInfo(path);
+            var outputFileInfo = new FileInfo(pathToConvert);
             if (!outputFileInfo.Exists || outputFileInfo.Length == 0)
-                throw new ArgumentException($"problem during conversion of video {path}.");
+                throw new ArgumentException($"problem during conversion of video {pathToConvert}.");
 
-            if (File.Exists(path))
-                File.Delete(path);
+            return filename;
         }
 
-        public async Task DownloadPlaylist(string idOrUrl)
+        public async Task DownloadPlaylist(string idOrUrl, bool merge)
         {
             PlaylistId id = new PlaylistId(idOrUrl);
             Playlist info = await _youtube.Playlists.GetAsync(id);
