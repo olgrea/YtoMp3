@@ -20,6 +20,6 @@ internal class InlineProgress : IProgress<double>, IDisposable
     public void Dispose()
     {
         Console.SetCursorPosition(_posX, _posY);
-        Console.WriteLine("Completed ✓");
+        Console.WriteLine("Completed");
     }
 }
