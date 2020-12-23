@@ -9,15 +9,6 @@ using YoutubeExplode.Videos;
 
 namespace YtoMp3
 {
-    public class Options
-    {
-        [Value(0, Required = true, HelpText = "The id, url or file path of the video/playlist. ")]
-        public string Path { get; set; }
-        
-        [Option('m', Default = false, HelpText = "Merge videos of a playlist or a folder into a single mp3.")]
-        public bool Merge { get; set; }
-    }
-    
     class Program
     {
         static async Task Main(string[] args)

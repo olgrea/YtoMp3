@@ -13,6 +13,15 @@ using YoutubeExplode.Videos.Streams;
 
 namespace YtoMp3
 {
+    public class Options
+    {
+        [Value(0, Required = true, HelpText = "The id, url or file path of the video/playlist. ")]
+        public string Path { get; set; }
+        
+        [Option('c', Default = false, HelpText = "Concatenate videos of a playlist or a folder into a single mp3.")]
+        public bool Concatenate { get; set; }
+    }
+    
     public class YtoMp3
     {
         private YoutubeClient _youtube;
@@ -31,7 +40,7 @@ namespace YtoMp3
             }
             else if(PlaylistId.TryParse(options.Path) != null)
             {
-                await client.ConvertPlaylist(options.Path, options.Merge);
+                await client.ConvertPlaylist(options.Path, options.Concatenate);
             }
             else if (Directory.Exists(options.Path))
             {
@@ -112,9 +121,10 @@ namespace YtoMp3
             var videos = await _youtube.Playlists.GetVideosAsync(id);
             Console.WriteLine($"{videos.Count} videos found in playlist {info.Title}");
             var videoPaths = new List<string>();
-            foreach (var video in videos)
+            for (var i = 0; i < videos.Count; i++)
             {
-                videoPaths.Add(await DownloadVideo(video.Url));
+                Console.WriteLine($"{i}/{videos.Count}");
+                videoPaths.Add(await DownloadVideo(videos[i].Url));
             }
 
             return videoPaths;
@@ -124,10 +134,14 @@ namespace YtoMp3
         {
             if (!concatenate)
             {
-                foreach (var path in pathsToConvert) 
-                    await ConvertToMp3(path, outputDirName);
+                var list = pathsToConvert.ToList();
+                for (var i = 0; i < list.Count; i++)
+                {
+                    Console.WriteLine($"{i}/{list.Count}");
+                    await ConvertToMp3(list[i], outputDirName);
+                }
 
-                return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);    
+                return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
             }
             
             return await ConcatenateMp3s(pathsToConvert, outputDirName);
@@ -227,7 +241,7 @@ namespace YtoMp3
 
         private static async Task<string> DoConversion(IConversion conversion)
         {
-            Console.WriteLine($"Converting...");
+            Console.WriteLine($"Converting to {conversion.OutputFilePath} ...");
 
             var cmd = conversion.Build();
             var nbInputs = cmd.Split("-i").Count();
@@ -241,7 +255,6 @@ namespace YtoMp3
             var outputFileInfo = new FileInfo(conversion.OutputFilePath);
             if (!outputFileInfo.Exists || outputFileInfo.Length == 0)
                 Console.Error.WriteLine($"problem during conversion of {outputFileInfo.Name}.");
-            Console.WriteLine($"File {conversion.OutputFilePath} created.");
             return conversion.OutputFilePath;
         }
     }
