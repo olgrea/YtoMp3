@@ -18,6 +18,21 @@ namespace MyYoutubeNow
         private readonly string _ffmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg.exe");
         private readonly string _baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
+        private string _tempPath;
+        private string TempPath
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_tempPath))
+                {
+                    _tempPath = Path.GetTempPath();
+                    Directory.CreateDirectory(_tempPath);
+                }
+
+                return _tempPath;
+            }
+        }
+        
         public Converter()
         {
             if (!File.Exists(_ffmpegPath))
@@ -25,6 +40,15 @@ namespace MyYoutubeNow
                 Console.WriteLine("FFmpeg not found.");
                 var t = DownloadFFmpeg();
                 t.Wait();
+            }
+            FFmpeg.SetExecutablesPath(_baseDirectory);
+        }
+
+        ~Converter()
+        {
+            if (Directory.Exists(_tempPath))
+            {
+                Directory.Delete(_tempPath, true);
             }
         }
 
@@ -83,7 +107,21 @@ namespace MyYoutubeNow
                 for (var i = 0; i < list.Count; i++)
                 {
                     Console.WriteLine($"{i}/{list.Count}");
-                    await ConvertToMp3(list[i], outputDirName);
+                    string pathToConvert = list[i];
+                    IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
+                    var audioStream = mediaInfo.AudioStreams.FirstOrDefault()?.SetCodec(AudioCodec.mp3);
+
+                    var filename = $"{Path.GetFileNameWithoutExtension(pathToConvert)}.mp3";
+                    var filePath = Path.Combine(outputDirName, filename);
+
+                    IConversion conversion = FFmpeg.Conversions.New();
+                    conversion.AddStream(audioStream)
+                        .SetOverwriteOutput(true)
+                        .SetOutput(filePath)
+                        .SetAudioBitrate(audioStream.Bitrate);
+
+                    Console.WriteLine($"Converting {Path.GetFileName(filePath)} to mp3...");
+                    await DoConversion(conversion);
                 }
 
                 return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
@@ -91,12 +129,59 @@ namespace MyYoutubeNow
             
             return await ConcatenateMp3s(pathsToConvert, outputDirName);
         }
-        
+
+        public async Task<string> ConvertToMp3s(string pathToSplit, IEnumerable<Chapter> chapters, string outputDirName = "output")
+        {
+            var tempDir = pathToSplit.Replace(Path.GetFileName(pathToSplit), "");
+
+            var chapterList = chapters.ToList();
+            for (int i = 0; i < chapterList.Count - 1; i++)
+            {
+                var chapter = chapterList[i];
+                var partPath = Path.Combine(_baseDirectory, outputDirName, chapter.Title + ".mp3");
+                
+                IConversion conversion = FFmpeg.Conversions.New();
+                var end = i + 1 != chapterList.Count - 1 ? chapterList[i + 1].TimeRangeStart : 0;
+                
+                IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToSplit);
+                var audioStream = mediaInfo.AudioStreams.FirstOrDefault()?.SetCodec(AudioCodec.mp3);
+
+                conversion.AddStream(audioStream)
+                    .SetOverwriteOutput(true)
+                    .SetOutput(partPath)
+                    .AddParameter(CreateSplitParameter(chapter.TimeRangeStart, end))
+                    .AddParameter(CreateFadeOutParameter())
+                    ;
+
+                var b = conversion.Build();
+                Console.WriteLine($"Converting chapter {chapter.Title} to mp3...");
+                await DoConversion(conversion);
+            }
+
+            Directory.Delete(tempDir, true);
+            return outputDirName;
+        }
+
+        private static string CreateSplitParameter(ulong start, ulong end)
+        {
+            var sb = new StringBuilder();
+            sb.Append($"-ss {TimeSpan.FromMilliseconds(start).ToFFmpeg()} ");
+            if (end > 0)
+            {
+                sb.Append($"-to {TimeSpan.FromMilliseconds(end).ToFFmpeg()} ");
+            }
+            
+            return sb.ToString();
+        }
+
+        private static string CreateFadeOutParameter()
+        {
+            return "-filter_complex \"aevalsrc=0:d=1.0 [a_silence]; [0:a:0] [a_silence] acrossfade=d=1.0\" ";
+        }
+
         public async Task<string> ConvertToMp3(string pathToConvert, string outputDirName = "output")
         {
-            FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
-
-            var outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, outputDirName);
+            var outputDir = Path.Combine(_baseDirectory, outputDirName);
             Directory.CreateDirectory(outputDir);
 
             IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
@@ -110,16 +195,14 @@ namespace MyYoutubeNow
                 .SetOverwriteOutput(true)
                 .SetOutput(filePath)
                 .SetAudioBitrate(audioStream.Bitrate);
-            
-            Console.WriteLine($"Converting {Path.GetFileName(filePath)} to mp3...");
+
+            Console.WriteLine($"Converting {Path.GetFileNameWithoutExtension(filePath)} to mp3...");
             return await DoConversion(conversion);
         }
 
         private async Task<string> ConcatenateMp3s(IEnumerable<string> pathsToMerge, string outputDirName = "output")
         {
-            FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
-
-            var outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, outputDirName);
+            var outputDir = Path.Combine(_baseDirectory, outputDirName);
             Directory.CreateDirectory(outputDir);
 
             var filename = $"{Path.GetFileNameWithoutExtension(outputDirName)}.mp3";
@@ -156,7 +239,7 @@ namespace MyYoutubeNow
             return sb.ToString();
         }
 
-        public async Task<string> ConcatenateMp3sInFolder(string path)
+        internal async Task<string> ConcatenateMp3sInFolder(string path)
         {
             var filepaths = Directory.EnumerateFiles(path, "*.mp3", SearchOption.TopDirectoryOnly);
             Console.WriteLine($"{filepaths.Count()} mp3 files in {path} will be concatenated");

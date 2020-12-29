@@ -35,10 +35,17 @@ namespace MyYoutubeNow
             {
                 VideoId id = new VideoId(options.Url);
                 var videoPath = await client.DownloadVideo(id);
-                var mp3Path = await converter.ConvertToMp3(videoPath);
+                if (options.Split)
+                {
+                    var chapters = await client.GetChaptersAsync(id);
+                    await converter.ConvertToMp3s(videoPath, chapters);
+                }
+                else
+                {
+                    await converter.ConvertToMp3(videoPath);
+                }
                 if (File.Exists(videoPath)) 
                     File.Delete(videoPath);
-                string temp = mp3Path;
             }
             else if(PlaylistId.TryParse(options.Url) != null)
             {

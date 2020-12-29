@@ -22,7 +22,10 @@ namespace MyYoutubeNow
         [Value(0, Required = true, HelpText = "The url of the video/playlist. ")]
         public string Url { get; set; }
         
-        [Option('c', Hidden = true, Default = false, HelpText = "Concatenate videos of a playlist or a folder into a single mp3.")]
+        [Option('s', Default = false, HelpText = "Split a video with chapters and convert them into mp3s.")]
+        public bool Split { get; set; }
+        
+        [Option('c', Hidden = true, Default = false, HelpText = "Concatenate videos of a playlist into a single mp3.")]
         public bool Concatenate { get; set; }
     }
 
@@ -106,7 +109,7 @@ namespace MyYoutubeNow
             return videoPaths;
         }
         
-        async Task<List<Chapter>> TryGetChaptersAsync(VideoId videoId)
+        internal async Task<List<Chapter>> GetChaptersAsync(VideoId videoId)
         {
             try
             {
