@@ -17,7 +17,7 @@ using YoutubeExplode.Videos.Streams;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 
-namespace YtoMp3
+namespace MyYoutubeNow
 {
     public class Options
     {
@@ -28,18 +28,18 @@ namespace YtoMp3
         public bool Concatenate { get; set; }
     }
     
-    public class YtoMp3
+    public class YoutubeClient
     {
-        private YoutubeClient _youtube;
+        private YoutubeExplode.YoutubeClient _youtube;
 
-        public YtoMp3()
+        public YoutubeClient()
         {
-            _youtube = new YoutubeClient();
+            _youtube = new YoutubeExplode.YoutubeClient();
         }
 
         public static async Task Execute(Options options)
         {
-            var client = new YtoMp3();
+            var client = new YoutubeClient();
             if (VideoId.TryParse(options.Path) != null)
             {
                 await client.ConvertVideo(options.Path);
@@ -274,7 +274,7 @@ namespace YtoMp3
         {
             try
             {
-                var assembly = typeof(YoutubeClient).Assembly;
+                var assembly = typeof(YoutubeExplode.YoutubeClient).Assembly;
                 var httpClient = typeof(VideoClient).GetField("_httpClient",
                     BindingFlags.NonPublic | BindingFlags.Instance)
                     .GetValue(_youtube.Videos);

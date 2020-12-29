@@ -7,7 +7,7 @@ using CommandLine;
 using YoutubeExplode.Playlists;
 using YoutubeExplode.Videos;
 
-namespace YtoMp3
+namespace MyYoutubeNow
 {
     class Program
     {
@@ -21,7 +21,7 @@ namespace YtoMp3
                 return;
             }
 
-            await results.WithParsedAsync(YtoMp3.Execute);
+            await results.WithParsedAsync(YoutubeClient.Execute);
         }
     }
 }
