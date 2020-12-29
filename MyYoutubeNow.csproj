@@ -11,15 +11,4 @@
     <PackageReference Include="YoutubeExplode" Version="5.1.9" />
   </ItemGroup>
 
-	<ItemGroup>
-		<ContentWithTargetPath Include="ffmpeg\ffmpeg.exe">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<TargetPath>ffmpeg.exe</TargetPath>
-		</ContentWithTargetPath>
-		<ContentWithTargetPath Include="ffmpeg\ffprobe.exe">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<TargetPath>ffprobe.exe</TargetPath>
-		</ContentWithTargetPath>
-	</ItemGroup>
-
 </Project>

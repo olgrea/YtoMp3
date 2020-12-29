@@ -1,15 +1,81 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
+using MyYoutubeNow.Utils;
 using Xabe.FFmpeg;
 
 namespace MyYoutubeNow
 {
     internal class Converter
     {
+        private const string FfmpegReleaseUrl = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases";
+        private readonly string _ffmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg.exe");
+        private readonly string _baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+
+        public Converter()
+        {
+            if (!File.Exists(_ffmpegPath))
+            {
+                Console.WriteLine("FFmpeg not found. Downloading it...");
+                var t = DownloadFFmpeg();
+                t.Wait();
+            }
+        }
+
+        private async Task DownloadFFmpeg()
+        {
+            using HttpClient httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "request");
+
+            var json = await httpClient.GetStringAsync(FfmpegReleaseUrl);
+            using JsonDocument doc = JsonDocument.Parse(json);
+            var jsonDocument = doc.RootElement.Clone();
+            // ReSharper disable once HeapView.BoxingAllocation
+            var elem = jsonDocument
+                .EnumerateArray().First()
+                .GetProperty("assets")
+                .EnumerateArray()
+                .FirstOrDefault(item => item.GetProperty("browser_download_url").GetString().EndsWith("win64-gpl.zip"));
+
+            var releaseUrl = elem.GetProperty("browser_download_url").GetString();
+            var zipFileName = Path.GetFileName(releaseUrl);
+            var zipPath = Path.Combine(_baseDirectory, zipFileName);
+
+            using (var progress = new InlineProgress())
+            {
+                await httpClient.DownloadAsync(releaseUrl, zipPath, elem.GetProperty("size").GetInt64(), progress);
+            }
+            
+            var extractedDir = zipPath.Replace(".zip", "");
+            if (Directory.Exists(extractedDir)) 
+                Directory.Delete(extractedDir, true);
+            
+            await using (FileStream zipStream = File.OpenRead(zipPath))
+            {
+                var zip = new ZipArchive(zipStream, ZipArchiveMode.Read);
+                zip.ExtractToDirectory(_baseDirectory);
+            }
+            
+            foreach (string file in Directory.EnumerateFiles(extractedDir, "*.exe", SearchOption.AllDirectories))
+            {
+                File.Copy(file, Path.Combine(_baseDirectory, Path.GetFileName(file)));
+            }
+
+            if (File.Exists(_ffmpegPath))
+            {
+                File.Delete(zipPath);
+                Directory.Delete(extractedDir, true);
+            }
+        }
+
+        
+
         public async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert, string outputDirName = "output", bool concatenate = false)
         {
             if (!concatenate)
