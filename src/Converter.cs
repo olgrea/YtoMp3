@@ -22,7 +22,7 @@ namespace MyYoutubeNow
         {
             if (!File.Exists(_ffmpegPath))
             {
-                Console.WriteLine("FFmpeg not found. Downloading it...");
+                Console.WriteLine("FFmpeg not found.");
                 var t = DownloadFFmpeg();
                 t.Wait();
             }
@@ -30,6 +30,7 @@ namespace MyYoutubeNow
 
         private async Task DownloadFFmpeg()
         {
+            Console.WriteLine("Downloading FFmpeg...");
             using HttpClient httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "request");
 
@@ -74,8 +75,6 @@ namespace MyYoutubeNow
             }
         }
 
-        
-
         public async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert, string outputDirName = "output", bool concatenate = false)
         {
             if (!concatenate)
@@ -95,7 +94,6 @@ namespace MyYoutubeNow
         
         public async Task<string> ConvertToMp3(string pathToConvert, string outputDirName = "output")
         {
-            // TODO : set as embedded
             FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
 
             var outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, outputDirName);
@@ -112,14 +110,13 @@ namespace MyYoutubeNow
                 .SetOverwriteOutput(true)
                 .SetOutput(filePath)
                 .SetAudioBitrate(audioStream.Bitrate);
-
-            Console.WriteLine($"{pathToConvert} will be converted to mp3");
+            
+            Console.WriteLine($"Converting {Path.GetFileName(filePath)} to mp3...");
             return await DoConversion(conversion);
         }
 
-        internal async Task<string> ConcatenateMp3s(IEnumerable<string> pathsToMerge, string outputDirName = "output")
+        private async Task<string> ConcatenateMp3s(IEnumerable<string> pathsToMerge, string outputDirName = "output")
         {
-            // TODO : set as embedded
             FFmpeg.SetExecutablesPath(Directory.GetCurrentDirectory());
 
             var outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, outputDirName);
@@ -135,7 +132,7 @@ namespace MyYoutubeNow
                 .SetOverwriteOutput(true)
                 .SetOutput(filePath);
             
-            Console.WriteLine($"{pathsToMerge.Count()} file will be concatenated to {filePath}.");
+            Console.WriteLine($"Concatenating {pathsToMerge.Count()} files...");
             return await DoConversion(conversion);
         }
         
@@ -172,8 +169,6 @@ namespace MyYoutubeNow
         
         private static async Task<string> DoConversion(IConversion conversion)
         {
-            Console.WriteLine($"Converting to {conversion.OutputFilePath} ...");
-
             var cmd = conversion.Build();
             var nbInputs = cmd.Split("-i").Count();
             

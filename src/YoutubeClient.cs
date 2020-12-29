@@ -69,6 +69,7 @@ namespace MyYoutubeNow
         {
             Video videoInfo = await _client.Videos.GetAsync(id);
             manifest ??= await _client.Videos.Streams.GetManifestAsync(id);
+            Console.WriteLine($"Downloading video {videoInfo.Title}...");
             
             if (manifest == null)
                 throw new ArgumentException("no manifest found");
@@ -82,7 +83,6 @@ namespace MyYoutubeNow
             
             var videoPath = Path.Combine(tempDir, $"{videoInfo.Title.RemoveInvalidChars()}.{stream.Container.Name}");
             
-            Console.WriteLine($"Downloading video {videoInfo.Title}...");
             using (var progress = new  InlineProgress())
             {
                 await _client.Videos.Streams.DownloadAsync(stream, videoPath, progress);
