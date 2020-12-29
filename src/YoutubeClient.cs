@@ -30,6 +30,20 @@ namespace MyYoutubeNow
     {
         private YoutubeExplode.YoutubeClient _client;
 
+        private string _tempPath;
+        private string TempPath
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_tempPath))
+                {
+                    _tempPath = Path.GetTempPath();
+                }
+
+                return _tempPath;
+            }
+        }
+        
         public YoutubeClient()
         {
             _client = new YoutubeExplode.YoutubeClient();
@@ -52,7 +66,7 @@ namespace MyYoutubeNow
             if (stream == null)
                 throw new ArgumentException("no audio stream found");
 
-            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            var tempDir = Path.Combine(TempPath, Path.GetRandomFileName());
             Directory.CreateDirectory(tempDir);
             
             var videoPath = Path.Combine(tempDir, $"{videoInfo.Title.RemoveInvalidChars()}.{stream.Container.Name}");
