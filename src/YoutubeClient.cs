@@ -113,45 +113,7 @@ namespace MyYoutubeNow
         {
             try
             {
-                var assembly = typeof(YoutubeExplode.YoutubeClient).Assembly;
-                var httpClient = typeof(VideoClient).GetField("_httpClient",
-                    BindingFlags.NonPublic | BindingFlags.Instance)
-                    .GetValue(_client.Videos);
-
-                var watchPageObj = assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
-                var methodInfo = watchPageObj.GetMethod("GetAsync");
-
-                var watchPage = await methodInfo.InvokeAsync(null, new object[] { httpClient, videoId.ToString() });
-
-                var root = (IHtmlDocument)watchPage.GetType().GetField("_root", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(watchPage);
-
-                var ytInitialData = root
-                    .GetElementsByTagName("script")
-                    .Select(e => e.Text())
-                    .FirstOrDefault(s => s.Contains("ytInitialData"));
-
-                if (string.IsNullOrWhiteSpace(ytInitialData))
-                    return new List<Chapter>();
-
-                var json = Regex.Match(ytInitialData, "ytInitialData\\s*=\\s*(.+?})(?:\"\\))?;", RegexOptions.Singleline).Groups[1].Value;
-
-                using var doc = JsonDocument.Parse(json);
-                var jsonDocument = doc.RootElement.Clone();
-                // ReSharper disable once HeapView.BoxingAllocation
-                var chaptersArray = jsonDocument
-                        .GetProperty("playerOverlays")
-                        .GetProperty("playerOverlayRenderer")
-                        .GetProperty("decoratedPlayerBarRenderer")
-                        .GetProperty("decoratedPlayerBarRenderer")
-                        .GetProperty("playerBar")
-                        .GetProperty("chapteredPlayerBarRenderer")
-                        .GetProperty("chapters")
-                        .EnumerateArray()
-                        .Select(j => new Chapter(
-                            j.GetProperty("chapterRenderer").GetProperty("title").GetProperty("simpleText").GetString(),
-                            j.GetProperty("chapterRenderer").GetProperty("timeRangeStartMillis").GetUInt64()));
-
-                return chaptersArray.ToList();
+                return await TryGetChaptersAsync(videoId);
             }
             catch (Exception ex)
             {
@@ -159,7 +121,54 @@ namespace MyYoutubeNow
                 Console.WriteLine(ex.Message);                
             }
             
+            //TODO : try parse chapters from description and comments
+            
             return new List<Chapter>();
+        }
+
+        private async Task<List<Chapter>> TryGetChaptersAsync(VideoId videoId)
+        {
+            var assembly = typeof(YoutubeExplode.YoutubeClient).Assembly;
+            var httpClient = typeof(VideoClient).GetField("_httpClient",
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                .GetValue(_client.Videos);
+
+            var watchPageObj = assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
+            var methodInfo = watchPageObj.GetMethod("GetAsync");
+
+            var watchPage = await methodInfo.InvokeAsync(null, new object[] {httpClient, videoId.ToString()});
+
+            var root = (IHtmlDocument) watchPage.GetType().GetField("_root", BindingFlags.NonPublic | BindingFlags.Instance)
+                .GetValue(watchPage);
+
+            var ytInitialData = root
+                .GetElementsByTagName("script")
+                .Select(e => e.Text())
+                .FirstOrDefault(s => s.Contains("ytInitialData"));
+
+            if (string.IsNullOrWhiteSpace(ytInitialData))
+                return new List<Chapter>();
+
+            var json = Regex.Match(ytInitialData, "ytInitialData\\s*=\\s*(.+?})(?:\"\\))?;", RegexOptions.Singleline).Groups[1]
+                .Value;
+
+            using var doc = JsonDocument.Parse(json);
+            var jsonDocument = doc.RootElement.Clone();
+            // ReSharper disable once HeapView.BoxingAllocation
+            var chaptersArray = jsonDocument
+                .GetProperty("playerOverlays")
+                .GetProperty("playerOverlayRenderer")
+                .GetProperty("decoratedPlayerBarRenderer")
+                .GetProperty("decoratedPlayerBarRenderer")
+                .GetProperty("playerBar")
+                .GetProperty("chapteredPlayerBarRenderer")
+                .GetProperty("chapters")
+                .EnumerateArray()
+                .Select(j => new Chapter(
+                    j.GetProperty("chapterRenderer").GetProperty("title").GetProperty("simpleText").GetString(),
+                    j.GetProperty("chapterRenderer").GetProperty("timeRangeStartMillis").GetUInt64()));
+
+            return chaptersArray.ToList();
         }
     }
 }
