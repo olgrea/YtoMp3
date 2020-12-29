@@ -33,6 +33,7 @@ namespace MyYoutubeNow
             }
         }
         
+        // TODO : change ffmpeg wrapper because of license
         public Converter()
         {
             if (!File.Exists(_ffmpegPath))
