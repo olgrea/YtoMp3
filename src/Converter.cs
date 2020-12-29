@@ -253,13 +253,11 @@ namespace MyYoutubeNow
         private static async Task<string> DoConversion(IConversion conversion)
         {
             var cmd = conversion.Build();
-            var nbInputs = cmd.Split("-i").Count();
-            
-            using (var convProgress = new InlineProgress())
-            {
-                conversion.OnProgress += (sender, args) => { convProgress.Report((double) args.Percent / (nbInputs * 100d)); };
-                await conversion.Start();
-            }
+            var nbInputs = cmd.Split("-i" ).Count() - 1;
+
+            using var convProgress = new InlineProgress();
+            conversion.OnProgress += (sender, args) => { convProgress.Report((double) args.Percent / nbInputs); };
+            await conversion.Start();
 
             var outputFileInfo = new FileInfo(conversion.OutputFilePath);
             if (!outputFileInfo.Exists || outputFileInfo.Length == 0)

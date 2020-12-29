@@ -14,6 +14,8 @@ internal class InlineProgress : IProgress<double>, IDisposable
     public void Report(double progress)
     {
         Console.SetCursorPosition(_posX, _posY);
+        if (progress >= 1) progress /= 100d;
+
         Console.WriteLine($"{progress:P1}");
     }
 
