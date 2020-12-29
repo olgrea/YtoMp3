@@ -26,6 +26,17 @@ namespace MyYoutubeNow
         public bool Concatenate { get; set; }
     }
 
+    public class Chapter
+    {
+        public string Title { get; }
+        public ulong TimeRangeStart { get; }
+        public Chapter(string title, ulong timeRangeStart)
+        {
+            Title = title;
+            TimeRangeStart = timeRangeStart;
+        }
+    }
+
     internal class YoutubeClient
     {
         private YoutubeExplode.YoutubeClient _client;
@@ -54,7 +65,7 @@ namespace MyYoutubeNow
             return await _client.Playlists.GetAsync(id);
         }
         
-        internal async Task<string> DownloadVideo(VideoId id, StreamManifest manifest = null)
+        public async Task<string> DownloadVideo(VideoId id, StreamManifest manifest = null)
         {
             Video videoInfo = await _client.Videos.GetAsync(id);
             manifest ??= await _client.Videos.Streams.GetManifestAsync(id);
@@ -80,7 +91,7 @@ namespace MyYoutubeNow
             return videoPath;
         }
 
-        internal async Task<IEnumerable<string>> DownloadPlaylist(PlaylistId id, Playlist info = null)
+        public async Task<IEnumerable<string>> DownloadPlaylist(PlaylistId id, Playlist info = null)
         {
             info ??= await _client.Playlists.GetAsync(id);
             var videos = await _client.Playlists.GetVideosAsync(id);
@@ -123,6 +134,7 @@ namespace MyYoutubeNow
 
                 using var doc = JsonDocument.Parse(json);
                 var jsonDocument = doc.RootElement.Clone();
+                // ReSharper disable once HeapView.BoxingAllocation
                 var chaptersArray = jsonDocument
                         .GetProperty("playerOverlays")
                         .GetProperty("playerOverlayRenderer")
@@ -145,18 +157,6 @@ namespace MyYoutubeNow
             }
             
             return new List<Chapter>();
-        }
-        
-    }
-    
-    public class Chapter
-    {
-        public string Title { get; }
-        public ulong TimeRangeStart { get; }
-        public Chapter(string title, ulong timeRangeStart)
-        {
-            Title = title;
-            TimeRangeStart = timeRangeStart;
         }
     }
 }
