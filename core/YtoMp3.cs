@@ -73,10 +73,10 @@ namespace YtoMp3
         public async Task<string> ConvertVideo(string idOrUrl)
         {
             VideoId id = new VideoId(idOrUrl);
-            var videoPath = await DownloadVideo(id);
-            
             // test
-            var chapters = GetChapters(_youtube.Videos, id);
+            var chapters = TryGetChaptersAsync(id);
+            
+            var videoPath = await DownloadVideo(id);
             
             
             var mp3Path = await ConvertToMp3(videoPath);
@@ -84,7 +84,7 @@ namespace YtoMp3
                 File.Delete(videoPath);
             return mp3Path;
         }
-
+        
         public async Task<string> ConvertPlaylist(string idOrUrl, bool merge)
         {
             PlaylistId id = new PlaylistId(idOrUrl);
@@ -202,8 +202,6 @@ namespace YtoMp3
                 .SetOverwriteOutput(true)
                 .SetOutput(filePath);
 
-            //var p = conversion.Build();
-            
             Console.WriteLine($"{pathsToMerge.Count()} file will be concatenated to {filePath}.");
             return await DoConversion(conversion);
         }
@@ -271,59 +269,59 @@ namespace YtoMp3
             return conversion.OutputFilePath;
         }
 
-        IEnumerable<Chapter> GetChapters(VideoClient videoClient, VideoId id)
+        
+        async Task<List<Chapter>> TryGetChaptersAsync(VideoId videoId)
         {
-            // get httpclient
-            var clientFi = typeof(VideoClient).GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
-            var httpClient = clientFi?.GetValue(videoClient);
-            
-            // get watchpage
-            var watchPage = GetWatchPage(id, httpClient).Result;
+            try
+            {
+                var assembly = typeof(YoutubeClient).Assembly;
+                var httpClient = typeof(VideoClient).GetField("_httpClient",
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                    .GetValue(_youtube.Videos);
 
-            // get html root
-            var rootFi = watchPage?.GetType().GetField("_root", BindingFlags.Instance | BindingFlags.NonPublic); 
-            IHtmlDocument root = rootFi?.GetValue(watchPage) as IHtmlDocument;
+                var watchPageObj = assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
+                var methodInfo = watchPageObj.GetMethod("GetAsync");
+
+                var watchPage = await methodInfo.InvokeAsync(null, new object[] { httpClient, videoId.ToString() });
+
+                var root = (IHtmlDocument)watchPage.GetType().GetField("_root", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(watchPage);
+
+                var ytInitialData = root
+                    .GetElementsByTagName("script")
+                    .Select(e => e.Text())
+                    .FirstOrDefault(s => s.Contains("ytInitialData"));
+
+                if (string.IsNullOrWhiteSpace(ytInitialData))
+                    return new List<Chapter>();
+
+                var json = Regex.Match(ytInitialData, "ytInitialData\\s*=\\s*(.+?})(?:\"\\))?;", RegexOptions.Singleline).Groups[1].Value;
+
+                using var doc = JsonDocument.Parse(json);
+                var jsonDocument = doc.RootElement.Clone();
+                var chaptersArray = jsonDocument
+                        .GetProperty("playerOverlays")
+                        .GetProperty("playerOverlayRenderer")
+                        .GetProperty("decoratedPlayerBarRenderer")
+                        .GetProperty("decoratedPlayerBarRenderer")
+                        .GetProperty("playerBar")
+                        .GetProperty("chapteredPlayerBarRenderer")
+                        .GetProperty("chapters")
+                        .EnumerateArray()
+                        .Select(j => new Chapter(
+                            j.GetProperty("chapterRenderer").GetProperty("title").GetProperty("simpleText").GetString(),
+                            j.GetProperty("chapterRenderer").GetProperty("timeRangeStartMillis").GetUInt64()));
+
+                return chaptersArray.ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Getting chapters failed");
+                Console.WriteLine(ex.Message);                
+            }
             
-            // get chapters
-            JsonElement? jsonElement = root
-                .GetElementsByTagName("script")
-                .Select(e => e.Text())
-                .FirstOrDefault(s => s.Contains("window[\"ytInitialData\"] ="))?
-                .NullIfWhiteSpace()?
-                .Pipe(s => Regex.Match(s, "window\\[\"ytInitialData\"\\]\\s*=\\s*(.+?})(?:\"\\))?;", RegexOptions.Singleline).Groups[1].Value)
-                .Pipe(Ext.Parse);
-                
-            // ReSharper disable once HeapView.BoxingAllocation
-            IEnumerable<Chapter> chapters = jsonElement.HasValue ? jsonElement.Value
-                    .GetPropertyOrNull("playerOverlays")?
-                    .GetPropertyOrNull("playerOverlayRenderer")?
-                    .GetPropertyOrNull("decoratedPlayerBarRenderer")?
-                    .GetPropertyOrNull("decoratedPlayerBarRenderer")?
-                    .GetPropertyOrNull("playerBar")?
-                    .GetPropertyOrNull("chapteredPlayerBarRenderer")?
-                    .GetPropertyOrNull("chapters")?
-                    .EnumerateArray()
-                    .Select(j => new Chapter(
-                        j.GetProperty("chapterRenderer").GetProperty("title").GetProperty("simpleText").GetString(),
-                        j.GetProperty("chapterRenderer").GetProperty("timeRangeStartMillis").GetUInt64()))
-                    .ToArray() : Enumerable.Empty<Chapter>();
-            
-            
-            
-            return chapters;
+            return new List<Chapter>();
         }
-
-        static async Task<object> GetWatchPage(VideoId id, object httpClient)
-        {
-            var watchPageType = typeof(VideoClient).Assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
-            var methodInfo = watchPageType?.GetMethod("GetAsync", BindingFlags.Static);
-            var task = methodInfo?.Invoke(null, new[] { httpClient, id.ToString() }) as Task;
-            await task.ConfigureAwait(false);
-            
-            var resultProperty = task.GetType().GetProperty("Result");
-            return resultProperty?.GetValue(task);
-        }
-
+        
         public class Chapter
         {
             public string Title { get; }
@@ -333,37 +331,17 @@ namespace YtoMp3
                 Title = title;
                 TimeRangeStart = timeRangeStart;
             }
-        }
-    }
-
-    internal static class Html
-    {
-        private static readonly HtmlParser HtmlParser;
-
-        static Html()
-        {
-            HtmlParser = new HtmlParser();
-        }
-
-        public static IHtmlDocument Parse(string source) => HtmlParser.ParseDocument(source);
+        }    
     }
     
-    public static class Ext
+    public static class MethodInfoExtensions
     {
-        public static JsonElement? GetPropertyOrNull(this JsonElement element, string propertyName) =>
-            element.TryGetProperty(propertyName, out var result) ? result : (JsonElement?) null;
-        
-        public static JsonElement Parse(string source)
+        public static async Task<object> InvokeAsync(this MethodInfo @this, object obj, params object[] parameters)
         {
-            using var doc = JsonDocument.Parse(source);
-            return doc.RootElement.Clone();
+            var task = (Task)@this.Invoke(obj, parameters);
+            await task.ConfigureAwait(false);
+            var resultProperty = task.GetType().GetProperty("Result");
+            return resultProperty.GetValue(task);
         }
-        
-        public static string? NullIfWhiteSpace(this string s) =>
-            !string.IsNullOrWhiteSpace(s)
-                ? s
-                : null;
-        
-        public static TOut Pipe<TIn, TOut>(this TIn input, Func<TIn, TOut> transform) => transform(input);
     }
 }
