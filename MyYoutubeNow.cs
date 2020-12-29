@@ -34,11 +34,12 @@ namespace MyYoutubeNow
             if (VideoId.TryParse(options.Url) != null)
             {
                 VideoId id = new VideoId(options.Url);
-                var videoPath = await client.DownloadVideo(id);
+                Video info = await client.GetVideoInfoAsync(id);
+                var videoPath = await client.DownloadVideo(id, info);
                 if (options.Split)
                 {
                     var chapters = await client.GetChaptersAsync(id);
-                    await converter.ConvertToMp3s(videoPath, chapters);
+                    await converter.ConvertToMp3s(videoPath, chapters, info.Title.RemoveInvalidChars());
                 }
                 else
                 {
@@ -50,7 +51,7 @@ namespace MyYoutubeNow
             else if(PlaylistId.TryParse(options.Url) != null)
             {
                 PlaylistId id = new PlaylistId(options.Url);
-                Playlist info = await client.GetPlaylistAsync(id);
+                Playlist info = await client.GetPlaylistInfoAsync(id);
                 var videoPaths = await client.DownloadPlaylist(id, info);
 
                 if (options.Concatenate)

@@ -63,15 +63,20 @@ namespace MyYoutubeNow
             _client = new YoutubeExplode.YoutubeClient();
         }
 
-        public async Task<Playlist> GetPlaylistAsync(PlaylistId id)
+        public async Task<Video> GetVideoInfoAsync(VideoId id)
+        {
+            return await _client.Videos.GetAsync(id);
+        }
+        
+        public async Task<Playlist> GetPlaylistInfoAsync(PlaylistId id)
         {
             return await _client.Playlists.GetAsync(id);
         }
         
-        public async Task<string> DownloadVideo(VideoId id, StreamManifest manifest = null)
+        public async Task<string> DownloadVideo(VideoId id, Video videoInfo = null)
         {
-            Video videoInfo = await _client.Videos.GetAsync(id);
-            manifest ??= await _client.Videos.Streams.GetManifestAsync(id);
+            videoInfo ??= await _client.Videos.GetAsync(id);
+            StreamManifest manifest = await _client.Videos.Streams.GetManifestAsync(id);
             Console.WriteLine($"Downloading video {videoInfo.Title}...");
             
             if (manifest == null)
@@ -113,41 +118,58 @@ namespace MyYoutubeNow
         {
             try
             {
-                return await TryGetChaptersAsync(videoId);
+                var watchPageDoc = await GetHtmlWatchPage(videoId);
+                return TryGetChapters(watchPageDoc);
+            }
+            catch { }
+
+            try
+            {
+                return await TryGetChaptersFromDescription(videoId);
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Getting chapters failed");
                 Console.WriteLine(ex.Message);                
+                throw;
             }
             
-            //TODO : try parse chapters from description and comments
-            
-            return new List<Chapter>();
+            //TODO : try parse chapters comments
         }
 
-        private async Task<List<Chapter>> TryGetChaptersAsync(VideoId videoId)
+        private async Task<List<Chapter>> TryGetChaptersFromDescription(VideoId id)
         {
-            var assembly = typeof(YoutubeExplode.YoutubeClient).Assembly;
-            var httpClient = typeof(VideoClient).GetField("_httpClient",
-                    BindingFlags.NonPublic | BindingFlags.Instance)
-                .GetValue(_client.Videos);
+            Video videoInfo = await _client.Videos.GetAsync(id);
+            var desc = videoInfo.Description;
+            var regex = new Regex("[0-9]?[0-9]?:?[0-5]?[0-9]:[0-5][0-9]", RegexOptions.Compiled);
 
-            var watchPageObj = assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
-            var methodInfo = watchPageObj.GetMethod("GetAsync");
+            var descLines = desc.Split("\n", StringSplitOptions.RemoveEmptyEntries);
 
-            var watchPage = await methodInfo.InvokeAsync(null, new object[] {httpClient, videoId.ToString()});
+            var chapters = new List<Chapter>();
+            foreach (string line in descLines)
+            {
+                var match = regex.Match(line);
+                if (match.Success)
+                {
+                    var title = line.Replace(match.Value, "").TrimStart().TrimEnd();
+                    var matchValue = match.Value;
+                    if (matchValue.Count(c => c == ':') == 1) 
+                        matchValue = "00:" + matchValue;
 
-            var root = (IHtmlDocument) watchPage.GetType().GetField("_root", BindingFlags.NonPublic | BindingFlags.Instance)
-                .GetValue(watchPage);
-
-            var ytInitialData = root
+                    var startTime = (ulong)TimeSpan.Parse(matchValue).TotalMilliseconds;
+                    chapters.Add(new Chapter(title, startTime));
+                }
+            }
+            
+            return chapters;
+        }
+        
+        private static List<Chapter> TryGetChapters(IHtmlDocument watchPageDoc)
+        {
+            var ytInitialData = watchPageDoc
                 .GetElementsByTagName("script")
                 .Select(e => e.Text())
                 .FirstOrDefault(s => s.Contains("ytInitialData"));
-
-            if (string.IsNullOrWhiteSpace(ytInitialData))
-                return new List<Chapter>();
 
             var json = Regex.Match(ytInitialData, "ytInitialData\\s*=\\s*(.+?})(?:\"\\))?;", RegexOptions.Singleline).Groups[1]
                 .Value;
@@ -169,6 +191,23 @@ namespace MyYoutubeNow
                     j.GetProperty("chapterRenderer").GetProperty("timeRangeStartMillis").GetUInt64()));
 
             return chaptersArray.ToList();
+        }
+
+        private async Task<IHtmlDocument> GetHtmlWatchPage(VideoId videoId)
+        {
+            var assembly = typeof(YoutubeExplode.YoutubeClient).Assembly;
+            var httpClient = typeof(VideoClient).GetField("_httpClient",
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                .GetValue(_client.Videos);
+
+            var watchPageObj = assembly.GetType("YoutubeExplode.ReverseEngineering.Responses.WatchPage");
+            var methodInfo = watchPageObj.GetMethod("GetAsync");
+
+            var watchPage = await methodInfo.InvokeAsync(null, new object[] {httpClient, videoId.ToString()});
+
+            var root = (IHtmlDocument) watchPage.GetType().GetField("_root", BindingFlags.NonPublic | BindingFlags.Instance)
+                .GetValue(watchPage);
+            return root;
         }
     }
 }

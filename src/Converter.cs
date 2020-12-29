@@ -111,20 +111,23 @@ namespace MyYoutubeNow
             return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
         }
 
-        public async Task<string> ConvertToMp3s(string pathToSplit, IEnumerable<Chapter> chapters, string outputDirName = "output")
+        public async Task<string> ConvertToMp3s(string videoMixPath, IEnumerable<Chapter> chapters, string outputDirName = "output")
         {
-            var tempDir = pathToSplit.Replace(Path.GetFileName(pathToSplit), "");
+            var tempDir = videoMixPath.Replace(Path.GetFileName(videoMixPath), "");
 
+            var outputDir = Path.Combine(_baseDirectory, outputDirName);
+            Directory.CreateDirectory(outputDir);
+            
             var chapterList = chapters.ToList();
             for (int i = 0; i < chapterList.Count - 1; i++)
             {
                 var chapter = chapterList[i];
-                var partPath = Path.Combine(_baseDirectory, outputDirName, chapter.Title + ".mp3");
+                var partPath = Path.Combine(_baseDirectory, outputDirName, chapter.Title.RemoveInvalidChars() + ".mp3");
                 
                 IConversion conversion = FFmpeg.Conversions.New();
                 var end = i + 1 != chapterList.Count - 1 ? chapterList[i + 1].TimeRangeStart : 0;
                 
-                IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToSplit);
+                IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(videoMixPath);
                 var audioStream = mediaInfo.AudioStreams.FirstOrDefault()?.SetCodec(AudioCodec.mp3);
 
                 conversion.AddStream(audioStream)
@@ -226,7 +229,11 @@ namespace MyYoutubeNow
             var nbInputs = cmd.Split("-i" ).Count() - 1;
 
             using var convProgress = new InlineProgress();
-            conversion.OnProgress += (sender, args) => { convProgress.Report((double) args.Percent / nbInputs); };
+            conversion.OnProgress += (sender, args) =>
+            {
+                convProgress.Report(args.Duration.TotalMilliseconds / (args.TotalLength.TotalMilliseconds * nbInputs));
+                
+            };
             await conversion.Start();
 
             var outputFileInfo = new FileInfo(conversion.OutputFilePath);
