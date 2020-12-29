@@ -52,7 +52,15 @@ namespace MyYoutubeNow
                 PlaylistId id = new PlaylistId(options.Url);
                 Playlist info = await client.GetPlaylistAsync(id);
                 var videoPaths = await client.DownloadPlaylist(id, info);
-                var outputDir = await converter.ConvertToMp3(videoPaths, $"{info.Title.RemoveInvalidChars()}", options.Concatenate);
+
+                if (options.Concatenate)
+                {
+                    await converter.ConcatenateMp3s(videoPaths);
+                }
+                else
+                {
+                    await converter.ConvertToMp3(videoPaths, $"{info.Title.RemoveInvalidChars()}");
+                }
                 foreach (var path in videoPaths)
                 {
                     if (File.Exists(path)) 

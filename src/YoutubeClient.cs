@@ -102,7 +102,7 @@ namespace MyYoutubeNow
             var videoPaths = new List<string>();
             for (var i = 0; i < videos.Count; i++)
             {
-                Console.WriteLine($"{i}/{videos.Count}");
+                Console.WriteLine($"{i+1}/{videos.Count}");
                 videoPaths.Add(await DownloadVideo(videos[i].Url));
             }
 

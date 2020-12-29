@@ -99,35 +99,16 @@ namespace MyYoutubeNow
             }
         }
 
-        public async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert, string outputDirName = "output", bool concatenate = false)
+        public async Task<string> ConvertToMp3(IEnumerable<string> pathsToConvert, string outputDirName = "output")
         {
-            if (!concatenate)
+            var list = pathsToConvert.ToList();
+            for (var i = 0; i < list.Count; i++)
             {
-                var list = pathsToConvert.ToList();
-                for (var i = 0; i < list.Count; i++)
-                {
-                    Console.WriteLine($"{i}/{list.Count}");
-                    string pathToConvert = list[i];
-                    IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(pathToConvert);
-                    var audioStream = mediaInfo.AudioStreams.FirstOrDefault()?.SetCodec(AudioCodec.mp3);
-
-                    var filename = $"{Path.GetFileNameWithoutExtension(pathToConvert)}.mp3";
-                    var filePath = Path.Combine(outputDirName, filename);
-
-                    IConversion conversion = FFmpeg.Conversions.New();
-                    conversion.AddStream(audioStream)
-                        .SetOverwriteOutput(true)
-                        .SetOutput(filePath)
-                        .SetAudioBitrate(audioStream.Bitrate);
-
-                    Console.WriteLine($"Converting {Path.GetFileName(filePath)} to mp3...");
-                    await DoConversion(conversion);
-                }
-
-                return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
+                Console.WriteLine($"Conversion {i+1}/{list.Count}");
+                await ConvertToMp3(list[i], outputDirName);
             }
-            
-            return await ConcatenateMp3s(pathsToConvert, outputDirName);
+
+            return Path.Combine(Directory.GetCurrentDirectory(), outputDirName);
         }
 
         public async Task<string> ConvertToMp3s(string pathToSplit, IEnumerable<Chapter> chapters, string outputDirName = "output")
@@ -200,7 +181,7 @@ namespace MyYoutubeNow
             return await DoConversion(conversion);
         }
 
-        private async Task<string> ConcatenateMp3s(IEnumerable<string> pathsToMerge, string outputDirName = "output")
+        public async Task<string> ConcatenateMp3s(IEnumerable<string> pathsToMerge, string outputDirName = "output")
         {
             var outputDir = Path.Combine(_baseDirectory, outputDirName);
             Directory.CreateDirectory(outputDir);
@@ -237,17 +218,6 @@ namespace MyYoutubeNow
             // map
             sb.Append($"-map \"[outa]\" \"{outputFilePath}\" ");
             return sb.ToString();
-        }
-
-        internal async Task<string> ConcatenateMp3sInFolder(string path)
-        {
-            var filepaths = Directory.EnumerateFiles(path, "*.mp3", SearchOption.TopDirectoryOnly);
-            Console.WriteLine($"{filepaths.Count()} mp3 files in {path} will be concatenated");
-
-            if (!path.EndsWith(Path.DirectorySeparatorChar)) 
-                path += Path.DirectorySeparatorChar;
-
-            return await ConvertToMp3(filepaths, Path.GetDirectoryName(path), true);
         }
         
         private static async Task<string> DoConversion(IConversion conversion)
