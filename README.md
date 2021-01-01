@@ -1,9 +1,9 @@
 # MyYoutubeNow
-##Downloads and converts a video or playlist to mp3 
+Downloads and converts a video or playlist to mp3 
 
 `MyYoutubeNow.exe <videoOrPlaylistUrl>`
  
-If the video has chapters (such as music mixes), you can add the `-s` switch to split it into chapters
+If the video has chapters (such as music albums or mixes), you can add the `-s` switch to split it into chapters
 
 `MyYoutubeNow.exe <videoUrl> -s`
 
